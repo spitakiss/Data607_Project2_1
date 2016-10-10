@@ -1,0 +1,155 @@
+---
+title: 'Data 607: Project 2, Part I'
+author: "Aaron Grzasko"
+date: "October 9, 2016"
+output: 
+    html_document:
+        theme: simplex
+        highlight: haddock
+---
+
+---
+
+## Assignment Overview
+
+The purpose of this exercise is to gain additional experience manipulating untidy data, using data sets suggested by students in CUNY's Data 607 class.  
+  
+In Part I, I use a data set submitted by my fellow classmate, Jose Zuniga.  
+  
+The source of the original data set can be found on the website [databasejournal.com](http://www.databasejournal.com/features/mysql/article.php/3861886/Tips-for-Simplifying-Crosstab-Query-Statements.htm)
+
+Jose's original discussion post on this data can be found [here](https://bbhosted.cuny.edu/webapps/discussionboard/do/message?action=list_messages&forum_id=_1397022_1&nav=discussion_board&conf_id=_1377703_1&course_id=_1310339_1&message_id=_20871555_1#msg__20871555_1Id).  
+  
+  
+## Load Libraries  
+  
+```{r, warning = FALSE, message=FALSE}
+# uncomment script below to install necessary packages
+# install.packages(c("tidyr","dplyr","stringr","car"))
+
+library(tidyr)
+library(dplyr)
+library(stringr)
+library(car)
+library(knitr)
+```
+  
+## Data
+  
+The data set for this exercise contains monthly citizen counts for 9 separate months and 5 regions within a presumably fictional country.  
+  
+The csv file containing this data is in a wide format, with the variable "Region" spanning multiple columns.  
+  
+Let's load the data:  
+  
+```{r, comment=NA}
+myurl <- "https://raw.githubusercontent.com/spitakiss/Data607_Project2_1/master/citizen.csv"
+citizen <- read.csv(myurl, header = TRUE, stringsAsFactors = FALSE)
+citizen <- tbl_df(citizen)
+citizen
+```
+  
+## Tidy Operations  
+  
+1. *Create month name-to-number function*.  It is usually more practical and efficient to store dates as numbers.  I created a custom function, `month_num`, to handle the conversion of the raw month name to number format.  Note:  I used a recommended approach from stack overflow to create this function--see [stackoverflow](http://stackoverflow.com/questions/6987478/convert-a-month-abbreviation-to-a-numeric-month-in-r).  
+  
+2. *Convert table from wide format to long format*.  As mentioned previously, we wish to collapse the *region* variable into one column, as this format is often easier to work with for analytical purposes.  
+
+  
+3. *Remove TOTAL row*.  The TOTAL row is superfluous; so I remove it using the `filter` function.  If at a later time we need to calculate these totals, we can do so using a host of different functions in base R and other packages.    
+
+4. *Clean values for region variable*.  In this step, I remove the string prefix, "REGION" from all *region* values.  This step is accomplished using the `mutate()` function and `str_replace_all()` function from the stringr package.  
+  
+5. *Implement `month_num()` function*.  See step 1 for more details.  
+  
+6. *Ignore TOTAL Column*  This is step is similar to step 3.  The TOTAL column is superfluous and is removed using the `select()` function.  
+
+
+```{r, comment=NA}
+# 1
+month_num <- function(x){
+   x <- tolower(x)
+   month_list <- list("january" = 1, "february" = 2, "march" = 3,"april"= 4, "may" = 5, "june" = 6, "july" = 7, "august" = 8 ,
+                      "september" = 9, "october" = 10, "november" = 11, "december" = 12)
+   sapply(x,function(x) month_list[[x]])
+}
+
+
+citizen <- citizen %>%
+                # 2
+                gather("region","num_citizen", REGION1:REGION1.4) %>%
+                # 3
+                filter(MONTH != 'TOTAL') %>%
+                mutate(
+                # 4
+                    region = str_replace_all(region,pattern = "REGION", replacement = ""),
+                # 5   
+                     MONTH = as.numeric(month_num(MONTH))
+                )%>% 
+                # 6    
+                select(-TOTAL) %>%
+                rename(month = MONTH)
+head(citizen)
+```
+  
+## Analysis  
+  
+The instructions for analysis provided by Jose were fairly open-ended:  
+  
+> "Compare monthly citizenship for the given regions.""
+
+
+**Graphs**  
+Let's start with a graph that plots monthly citizen counts by month and region.  
+  
+Below I use a function from the *car package*, `scatterplot()`.  This function works well with long format data, and requires a minimal amount of coding effort.  
+  
+
+```{r graph}
+# plot each region in one graph
+scatterplot(citizen$num_citizen ~ citizen$month | citizen$region, smoother = FALSE, reg.line = FALSE,  xlab = "Month", ylab = "Citizens", main = "Plot Ct by Region")    
+
+# sum citizens in every region
+total_cit <- citizen %>%
+                select(month,num_citizen) %>%
+                group_by(month) %>%
+                summarise(sum = sum(num_citizen))
+
+# plot total citzenship by month
+scatterplot(total_cit$sum ~ total_cit$month, smoother = FALSE, reg.line = FALSE, col = "blue",  xlab = "Month", ylab = "Citizens", main = "Plot Ttl Ct")
+```
+  
+It is clear from these plots that total citizenship spiked considerably from April through August and stayed relatively flat throughout the year thereafter.  
+  
+We also see that Region 1.2 experienced the greatest spike in population, while Regions 1 and 1.3 remained sparsely populated for the entire 9 month period.  
+  
+  
+**Summary Statistics**  
+  
+In the tables below I calculate basic summary statistics:  
+  
+* Average citizenship by region for the entire 9 month period  
+* Ending citizenship by region for December, the last month in the data set  
+
+```{r}
+average_stat <- citizen %>%
+                select(region, num_citizen) %>%
+                group_by(region) %>%
+                summarise(avg_citizens = round(mean(num_citizen),1)) %>%
+                arrange(desc(avg_citizens))
+knitr::kable(average_stat)
+
+
+ending_stat <- citizen %>%
+    rename(dec_citizens = num_citizen) %>%
+    filter(month == 12) %>%
+    select(region, dec_citizens) %>%
+    arrange(desc(dec_citizens))
+
+
+knitr::kable(ending_stat)
+
+```
+  
+From these summary statistics, we see that all regions ended the year with populations above their respective 9 month averages, with the exception of regions 1.3 and 1, which experienced a decrease.  
+
